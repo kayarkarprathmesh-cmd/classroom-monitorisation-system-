@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aura Monitor | Advanced Telemetry</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;600;900&display=swap');
+        
+        :root {
+            --neon-cyan: #00f2ff;
+            --neon-red: #ff0055;
+            --glass: rgba(10, 15, 30, 0.8);
+        }
+
+        body { 
+            font-family: 'Outfit', sans-serif; 
+            background: radial-gradient(circle at center, #0f172a 0%, #020617 100%);
+            color: #f8fafc;
+            overflow: hidden;
+        }
+
+        .font-mono { font-family: 'JetBrains+Mono', monospace; }
+        
+        .glass-panel { 
+            background: var(--glass);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+        }
+
+        .neon-glow-cyan { box-shadow: 0 0 15px rgba(0, 242, 255, 0.2); }
+        .mirror-feed { transform: scaleX(-1); filter: contrast(1.1) brightness(0.9); }
+
+        /* Custom Alert Animations */
+        #lowAttentionAlert { display: none; }
+        .alert-active { display: flex !important; animation: slideIn 0.4s cubic-bezier(0.17, 0.89, 0.32, 1.27); }
+        
+        @keyframes slideIn {
+            from { transform: translateY(100%) scale(0.9); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        .scanning-line {
+            width: 100%;
+            height: 2px;
+            background: var(--neon-cyan);
+            position: absolute;
+            top: 0;
+            left: 0;
+            box-shadow: 0 0 15px var(--neon-cyan);
+            animation: scan 3s linear infinite;
+            z-index: 10;
+        }
+
+        @keyframes scan {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+    </style>
+</head>
+<body class="p-6 lg:p-12 h-screen">
+
+    <div id="lowAttentionAlert" class="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+        <div class="glass-panel p-8 rounded-[2rem] border-2 border-pink-500 max-w-sm w-full text-center">
+            <div class="w-16 h-16 bg-pink-500/20 text-pink-500 rounded-full flex items-center justify-center mx-auto mb-4 border border-pink-500/50">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+            </div>
+            <h3 class="text-2xl font-black text-white mb-2 uppercase tracking-tighter">Low Attention</h3>
+            <p class="text-slate-400 text-sm mb-6">Subject engagement has dropped below safe parameters for > 5 seconds.</p>
+            <button onclick="dismissAlert()" class="w-full bg-pink-600 hover:bg-pink-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-pink-900/40">ACKNOWLEDGE</button>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto h-full flex flex-col">
+        <div class="flex flex-wrap justify-between items-end mb-8 gap-4">
+            <div>
+                <h1 class="text-4xl font-black tracking-tight text-white flex items-center gap-3">
+                    AURA<span class="text-cyan-400">01</span>
+                    <span class="text-[10px] font-mono bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 px-2 py-0.5 rounded uppercase">Encrypted</span>
+                </h1>
+                <p id="systemLog" class="text-xs font-mono text-slate-500 mt-2">SYS_LOAD: 0.12ms | CLOUD_SYNC: OK</p>
+            </div>
+            <div class="flex gap-3">
+                <div class="glass-panel px-4 py-2 rounded-xl border-white/5 flex items-center gap-3">
+                    <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <span class="text-[10px] uppercase font-bold tracking-widest text-slate-400">Biometric Link: Stable</span>
+                </div>
+                <button onclick="takeSnapshot()" class="bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl text-xs font-bold transition-all border border-white/10 uppercase tracking-widest">Snapshot</button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-grow pb-10">
+            
+            <div class="lg:col-span-5 flex flex-col gap-6">
+                <div class="glass-panel rounded-[2.5rem] p-4 flex-grow relative overflow-hidden group">
+                    <div class="scanning-line"></div>
+                    <div class="w-full h-full rounded-[2rem] overflow-hidden bg-slate-900 relative">
+                        <video id="webcam" autoplay playsinline class="w-full h-full object-cover mirror-feed"></video>
+                        <div class="absolute top-6 left-6 flex flex-col gap-1">
+                            <span class="bg-red-500 text-[10px] font-black px-2 py-0.5 rounded w-fit">LIVE</span>
+                            <span class="text-[10px] font-mono text-white/40">FEED_ID: 0x992B</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-7 flex flex-col gap-6">
+                <div class="glass-panel rounded-[2.5rem] p-8 flex flex-col h-full">
+                    <div class="flex justify-between items-start mb-8">
+                        <div>
+                            <h2 class="text-xl font-bold text-white tracking-tight">Activeness Waveform</h2>
+                            <p class="text-xs text-slate-500 font-mono">Real-time attention telemetry (Floating)</p>
+                        </div>
+                        <div class="text-right">
+                            <div id="livePercent" class="text-7xl font-black text-cyan-400 tracking-tighter transition-all">0%</div>
+                            <div id="trendLabel" class="text-[10px] font-bold text-emerald-400 mt-1 uppercase">↑ Trending Up</div>
+                        </div>
+                    </div>
+
+                    <div class="flex-grow relative min-h-[300px]">
+                        <canvas id="floatingChart"></canvas>
+                    </div>
+
+                    <div class="mt-8 pt-8 border-t border-white/5 grid grid-cols-3 gap-4">
+                        <div class="text-center">
+                            <p class="text-[10px] uppercase font-bold text-slate-500 mb-1">Peak Focus</p>
+                            <p class="text-xl font-bold text-white">98.2%</p>
+                        </div>
+                        <div class="text-center border-x border-white/5">
+                            <p class="text-[10px] uppercase font-bold text-slate-500 mb-1">Response</p>
+                            <p class="text-xl font-bold text-white">142ms</p>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-[10px] uppercase font-bold text-slate-500 mb-1">Uptime</p>
+                            <p class="text-xl font-bold text-white">04:12:05</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const livePercent = document.getElementById('livePercent');
+        const alertBox = document.getElementById('lowAttentionAlert');
+        
+        let floatingChart;
+        let chartData = Array(60).fill(75); // 60 data points
+        let chartLabels = Array(60).fill('');
+        let lowAttentionCounter = 0;
+
+        function initChart() {
+            const ctx = document.getElementById('floatingChart').getContext('2d');
+            
+            // Create Gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(0, 242, 255, 0.3)');
+            gradient.addColorStop(1, 'rgba(0, 242, 255, 0)');
+
+            floatingChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartLabels,
+                    datasets: [{
+                        data: chartData,
+                        borderColor: '#00f2ff',
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                        backgroundColor: gradient,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { display: false } },
+                        x: { display: false }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("Cam Error:", err);
+            }
+        }
+
+        function updateTelemetry() {
+            // Simulated Intelligence Logic
+            let drift = (Math.random() * 8) - 4;
+            let currentVal = Math.min(Math.max(chartData[chartData.length - 1] + drift, 20), 98);
+
+            // Update Graph Data (Floating effect)
+            chartData.push(currentVal);
+            chartData.shift();
+            floatingChart.update('none');
+
+            // UI Feedback
+            livePercent.innerText = Math.round(currentVal) + '%';
+            
+            // Attention Logic
+            if(currentVal < 45) {
+                lowAttentionCounter++;
+                livePercent.classList.add('text-pink-500');
+                livePercent.classList.remove('text-cyan-400');
+                floatingChart.data.datasets[0].borderColor = '#ff0055';
+                
+                // Trigger Alert if low for more than 3 seconds (30 ticks at 100ms)
+                if(lowAttentionCounter > 30) {
+                    alertBox.classList.add('alert-active');
+                }
+            } else {
+                lowAttentionCounter = 0;
+                livePercent.classList.add('text-cyan-400');
+                livePercent.classList.remove('text-pink-500');
+                floatingChart.data.datasets[0].borderColor = '#00f2ff';
+            }
+        }
+
+        function dismissAlert() {
+            alertBox.classList.remove('alert-active');
+            lowAttentionCounter = -50; // Delay next alert
+        }
+
+        function takeSnapshot() {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const link = document.createElement('a');
+            link.download = `TELEMETRY_${Date.now()}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+
+        window.onload = () => {
+            initChart();
+            startCamera();
+            setInterval(updateTelemetry, 100);
+        };
+    </script>
+</body>
+</html>
